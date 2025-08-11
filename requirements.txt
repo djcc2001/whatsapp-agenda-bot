@@ -3,3 +3,4 @@ twilio
 apscheduler
 python-dotenv
 gunicorn
+google-generativeai
