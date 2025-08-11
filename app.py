@@ -507,26 +507,57 @@ def whatsapp_reply():
     # --- Lógica para mostrar todos los eventos programados ---
     elif "mostrar eventos" in msg.lower():
         eventos = get_all_events()
-        
+    
         if eventos:
-            # Ordenar eventos por el campo 'conteo' antes de mostrarlos
+            # El límite de caracteres de Twilio para WhatsApp es de alrededor de 1600.
+            # Usaremos 1500 como un valor seguro para dividir el mensaje.
+            MAX_MESSAGE_LENGTH = 1500
+            
+            # Ordenar eventos por el campo 'conteo'
             eventos.sort(key=lambda x: x[1].get('conteo', 0))
-            mensaje = "Aquí están todos tus eventos programados:\n"
+    
+            # Inicializamos el primer mensaje
+            mensaje_actual = "Aquí están todos tus eventos programados:\n\n"
+            
+            # Recorremos cada evento para construir los mensajes
             for id, data in eventos:
-                evento, dia_semana, fecha, hora, recurrente, conteo = data["evento_texto"], data["dia_semana"], data.get("fecha"), data["hora"], data["recurrente"], data["conteo"]
+                evento, dia_semana, fecha, hora, recurrente, conteo = (
+                    data["evento_texto"], 
+                    data["dia_semana"], 
+                    data.get("fecha"), 
+                    data["hora"], 
+                    data["recurrente"], 
+                    data["conteo"]
+                )
                 
+                # Construimos la línea de texto para el evento actual
                 if recurrente:
                     dia_espanol = get_spanish_day_name(dia_semana)
-                    mensaje += f"{conteo}: Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
+                    linea_evento = f"{conteo}: Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
                 else:
                     fecha_obj = datetime.datetime.strptime(fecha, '%Y-%m-%d')
                     dia_espanol = get_spanish_day_name(fecha_obj.strftime('%A'))
                     fecha_formateada = fecha_obj.strftime('%d/%m/%Y')
-                    mensaje += f"{conteo}: {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
-        else:
-            mensaje = "No tienes eventos programados en este momento."
+                    linea_evento = f"{conteo}: {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
+    
+                # Verificamos si la línea actual excede el límite del mensaje
+                if len(mensaje_actual) + len(linea_evento) > MAX_MESSAGE_LENGTH:
+                    # Si lo excede, enviamos el mensaje actual
+                    resp.message(mensaje_actual)
+                    # Y comenzamos un nuevo mensaje con la línea actual
+                    mensaje_actual = linea_evento
+                else:
+                    # Si no lo excede, añadimos la línea al mensaje actual
+                    mensaje_actual += linea_evento
             
-        resp.message(mensaje)
+            # Enviamos el último mensaje restante
+            if mensaje_actual.strip():
+                resp.message(mensaje_actual)
+    
+        else:
+            # Si no hay eventos, enviamos un solo mensaje
+            mensaje = "No tienes eventos programados en este momento."
+            resp.message(mensaje)
     
     # --- Lógica para mostrar solo los eventos pendientes del día ---
     elif msg.lower().startswith("listar eventos para"):
@@ -580,4 +611,5 @@ if __name__ == "__main__":
     scheduler.start()
 
     app.run(debug=True)
+
 
