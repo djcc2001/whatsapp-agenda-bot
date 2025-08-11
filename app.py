@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, date
+import datetime
 import google.generativeai as genai
 from flask import Flask, request
 from twilio.rest import Client
@@ -457,14 +457,11 @@ def whatsapp_reply():
                 resp.message("Formato de día u hora no reconocido. Asegúrate de usar una fecha (DD/MM/YYYY), un día de la semana, 'hoy' o 'mañana', seguido de la hora en formato 24 horas (HH:MM).")
                 return str(resp)
   
-            if fecha and fecha == date.today():
-                hora_evento = datetime.strptime(hora, '%H:%M').time()
-                hora_actual = datetime.now().time()
-                if hora_evento < hora_actual:
-                    resp.message(f"¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. "
-                                f"La hora actual del servidor es {hora_actual.strftime('%H:%M')}. "
-                                "Por favor, elige una hora futura.")
-                    return str(resp)
+            if fecha and fecha == datetime.date.today() and datetime.datetime.strptime(hora, '%H:%M').time() < datetime.datetime.now().time():
+                resp.message(f"¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. "
+                     f"La hora actual del servidor es {datetime.datetime.now().time()}. "
+                     "Por favor, elige una hora futura.")
+                return str(resp)
   
             descripcion_match = re.search(r'(\d{1,2}:\d{2})', horario_y_descripcion)
 
@@ -693,6 +690,3 @@ if __name__ == "__main__":
     scheduler.start()
  
     app.run(debug=True)
-
-
-
