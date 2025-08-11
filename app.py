@@ -306,14 +306,6 @@ def daily_routine_message():
     else:
         mensaje = f"¡Buenos días! No tienes eventos programados para hoy ({dia_semana_actual_es})."
 
-    # Agregar ejemplos de comandos al final del mensaje
-    mensaje += "\n---\n*Ejemplos de comandos:*\n"
-    mensaje += "• *Agregar evento único:* `agregar evento 26/08/2025 a las 12:00 arreglar la sala`\n"
-    mensaje += "• *Agregar evento recurrente:* `agregar evento todos los lunes hasta el 30/12/2025 a las 15:00 leer un libro`\n"
-    mensaje += "• *Listar eventos del día:* `listar eventos para el viernes`\n"
-    mensaje += "• *Ver todos los eventos:* `mostrar eventos`\n"
-    mensaje += "• *Borrar evento:* `borrar evento [conteo]`"
-
     send_whatsapp_message(YOUR_PHONE_NUMBER, mensaje)
 
 def schedule_reminders():
@@ -583,8 +575,9 @@ def whatsapp_reply():
 
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
-    scheduler.add_job(daily_routine_message, 'cron', hour=6, minute=0)
-    scheduler.add_job(schedule_reminders, 'cron', hour=5, minute=55)
+    scheduler.add_job(daily_routine_message, 'cron', hour=5, minute=0)
+    scheduler.add_job(schedule_reminders, 'cron', hour=4, minute=55)
     scheduler.start()
 
     app.run(debug=True)
+
