@@ -559,8 +559,7 @@ def whatsapp_reply():
  
         if eventos:
             MAX_MESSAGE_LENGTH = 1500
-            now_server = datetime.datetime.now()
-            ahora = now_server.astimezone(LOCAL_TIMEZONE)
+            ahora = datetime.datetime.now(LOCAL_TIMEZONE)
             eventos_con_proxima_fecha = []
   
             # Mapeo de días de la semana de inglés a español
@@ -714,5 +713,6 @@ if __name__ == "__main__":
     scheduler.start()
  
     app.run(debug=True)
+
 
 
