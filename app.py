@@ -509,51 +509,65 @@ def whatsapp_reply():
         eventos = get_all_events()
     
         if eventos:
-            # El límite de caracteres de Twilio para WhatsApp es de alrededor de 1600.
-            # Usaremos 1500 como un valor seguro para dividir el mensaje.
             MAX_MESSAGE_LENGTH = 1500
-    
-            # Filtramos solo los eventos que no han pasado
-            eventos_filtrados = []
             ahora = datetime.datetime.now()
-    
+            eventos_con_proxima_fecha = []
+            
+            # Mapeo de días de la semana de inglés a español
+            # La función get_spanish_day_name ya hace esto, pero es útil tener el mapeo
+            # aquí para la lógica de búsqueda de la próxima fecha.
+            english_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+            
             for id, data in eventos:
                 if data.get("recurrente"):
-                    # Los eventos recurrentes siempre se incluyen
-                    eventos_filtrados.append((id, data))
+                    # Calcular la próxima fecha para un evento recurrente
+                    dia_semana_recurrente = data.get("dia_semana")
+                    
+                    # Encontrar el índice del día de la semana actual
+                    dia_semana_ahora = ahora.weekday() # Lunes es 0, Domingo es 6
+                    
+                    # Encontrar el índice del día de la semana del evento
+                    dia_semana_evento = english_days.index(dia_semana_recurrente)
+                    
+                    # Calcular cuántos días faltan para el próximo evento
+                    dias_a_sumar = dia_semana_evento - dia_semana_ahora
+                    if dias_a_sumar < 0:
+                        dias_a_sumar += 7
+                    
+                    # Si el evento es hoy, revisamos la hora
+                    hora_evento_str = data.get("hora")
+                    hora_evento = datetime.datetime.strptime(hora_evento_str, '%H:%M').time()
+                    
+                    if dias_a_sumar == 0 and hora_evento < ahora.time():
+                        dias_a_sumar += 7 # Pasamos a la siguiente semana
+                    
+                    proxima_fecha = ahora + datetime.timedelta(days=dias_a_sumar)
+                    
+                    # Establecer la hora del evento
+                    proxima_fecha = proxima_fecha.replace(hour=hora_evento.hour, minute=hora_evento.minute, second=0, microsecond=0)
+                    
+                    data["proxima_fecha"] = proxima_fecha
+                    eventos_con_proxima_fecha.append((id, data))
+    
                 else:
-                    # Los eventos no recurrentes se incluyen solo si la fecha y la hora no han pasado
+                    # Calcular la próxima fecha para un evento no recurrente
                     fecha_evento_str = data.get("fecha")
                     hora_evento_str = data.get("hora")
-                    
-                    # Creamos un objeto datetime para comparar
                     evento_datetime = datetime.datetime.strptime(f"{fecha_evento_str} {hora_evento_str}", '%Y-%m-%d %H:%M')
-    
+                    
                     if evento_datetime >= ahora:
-                        eventos_filtrados.append((id, data))
+                        data["proxima_fecha"] = evento_datetime
+                        eventos_con_proxima_fecha.append((id, data))
     
-            if eventos_filtrados:
-                # Función para determinar el orden de los eventos
-                def get_sort_key(item):
-                    id, data = item
-                    if data.get("recurrente"):
-                        # Para eventos recurrentes, ordenamos por el día de la semana y la hora.
-                        # Asignamos un valor numérico a cada día para ordenar correctamente.
-                        day_map = {'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 7}
-                        return (1, day_map.get(data.get("dia_semana"), 8), data.get("hora"))
-                    else:
-                        # Para eventos no recurrentes, ordenamos por fecha y hora.
-                        fecha_obj = datetime.datetime.strptime(data.get("fecha"), '%Y-%m-%d')
-                        return (0, fecha_obj, data.get("hora'))
-    
-                # Ordenar eventos usando la nueva función de clave
-                eventos_filtrados.sort(key=get_sort_key)
+            if eventos_con_proxima_fecha:
+                # Ordenamos todos los eventos por la próxima fecha
+                eventos_con_proxima_fecha.sort(key=lambda x: x[1].get('proxima_fecha'))
     
                 # Inicializamos el primer mensaje
-                mensaje_actual = "Aquí están todos tus eventos programados:\n\n"
+                mensaje_actual = "Aquí están tus eventos programados en orden cronológico:\n\n"
     
                 # Recorremos cada evento para construir los mensajes
-                for id, data in eventos_filtrados:
+                for id, data in eventos_con_proxima_fecha:
                     evento, dia_semana, fecha, hora, recurrente, conteo = (
                         data["evento_texto"],
                         data["dia_semana"],
@@ -566,12 +580,12 @@ def whatsapp_reply():
                     # Construimos la línea de texto para el evento actual
                     if recurrente:
                         dia_espanol = get_spanish_day_name(dia_semana)
-                        linea_evento = f"{conteo}: Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
+                        linea_evento = f"Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
                     else:
                         fecha_obj = datetime.datetime.strptime(fecha, '%Y-%m-%d')
                         dia_espanol = get_spanish_day_name(fecha_obj.strftime('%A'))
                         fecha_formateada = fecha_obj.strftime('%d/%m/%Y')
-                        linea_evento = f"{conteo}: {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
+                        linea_evento = f"{dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
     
                     # Verificamos si la línea actual excede el límite del mensaje
                     if len(mensaje_actual) + len(linea_evento) > MAX_MESSAGE_LENGTH:
@@ -590,7 +604,6 @@ def whatsapp_reply():
                 # Si después del filtro no hay eventos, enviamos este mensaje
                 mensaje = "No tienes eventos programados en este momento."
                 resp.message(mensaje)
-    
         else:
             # Si no hay eventos, enviamos un solo mensaje
             mensaje = "No tienes eventos programados en este momento."
@@ -648,6 +661,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     app.run(debug=True)
+
 
 
 
