@@ -1,6 +1,5 @@
 import os
 import re
-import sqlite3
 import datetime
 import google.generativeai as genai
 from flask import Flask, request
@@ -8,6 +7,9 @@ from twilio.rest import Client
 from apscheduler.schedulers.background import BackgroundScheduler
 from twilio.twiml.messaging_response import MessagingResponse
 from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, firestore
+import json
 
 # Cargar variables de entorno del archivo .env
 load_dotenv()
@@ -25,11 +27,24 @@ client = Client(ACCOUNT_SID, AUTH_TOKEN)
 
 # Tu clave de API de Google Gemini
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Nombre del archivo de la base de datos
-DB_FILE = 'agenda.db'
+# Inicializa Firebase
+# Para el despliegue, la clave JSON se lee de una variable de entorno.
+firebase_json_key = os.environ.get("FIREBASE_SERVICE_ACCOUNT_KEY")
+if firebase_json_key:
+    try:
+        cred_json = json.loads(firebase_json_key)
+        cred = credentials.Certificate(cred_json)
+        firebase_admin.initialize_app(cred)
+        db = firestore.client()
+        print("Firebase inicializado correctamente.")
+    except Exception as e:
+        print(f"Error al inicializar Firebase: {e}")
+        db = None
+else:
+    print("Error: La variable de entorno 'FIREBASE_SERVICE_ACCOUNT_KEY' no está configurada.")
+    db = None
 
 # Estado de la conversación para manejar conflictos, se borra al reiniciar
 CONVERSATION_STATE = {}
@@ -45,63 +60,38 @@ DIA_SEMANA_MAP = {
     'domingo': 'Sunday'
 }
 
-def init_db():
-    """Inicializa la base de datos si no existe."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    # Se agrega la columna `fecha` para eventos no recurrentes
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS eventos (
-            id INTEGER PRIMARY KEY,
-            evento_texto TEXT NOT NULL,
-            dia_semana TEXT,
-            fecha TEXT,
-            hora TEXT NOT NULL,
-            recurrente BOOLEAN NOT NULL
-        )
-    """)
-    conn.commit()
-    conn.close()
-
 def insert_event(evento_texto, dia_semana, fecha, hora, recurrente):
-    """Inserta un nuevo evento en la base de datos."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO eventos (evento_texto, dia_semana, fecha, hora, recurrente) VALUES (?, ?, ?, ?, ?)",
-            (evento_texto, dia_semana, fecha, hora, recurrente)
-        )
-        conn.commit()
-        return True
-    except sqlite3.Error as e:
-        print(f"Error al insertar evento: {e}")
+    """Inserta un nuevo evento en Firebase."""
+    if not db:
+        print("Error: La base de datos no está inicializada.")
         return False
-    finally:
-        conn.close()
+    try:
+        db.collection("eventos").add({
+            "evento_texto": evento_texto,
+            "dia_semana": dia_semana,
+            "fecha": fecha.strftime('%Y-%m-%d') if fecha else None,
+            "hora": hora,
+            "recurrente": recurrente
+        })
+        return True
+    except Exception as e:
+        print(f"Error al insertar evento en Firestore: {e}")
+        return False
 
 def delete_event(event_id):
-    """Elimina un evento de la base de datos por su ID."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "DELETE FROM eventos WHERE id = ?",
-            (event_id,)
-        )
-        conn.commit()
-        return True
-    except sqlite3.Error as e:
-        print(f"Error al eliminar evento: {e}")
+    """Elimina un evento de Firebase por su ID."""
+    if not db:
+        print("Error: La base de datos no está inicializada.")
         return False
-    finally:
-        conn.close()
+    try:
+        db.collection("eventos").document(event_id).delete()
+        return True
+    except Exception as e:
+        print(f"Error al eliminar evento en Firestore: {e}")
+        return False
 
 def get_day_from_text(text):
-    """
-    Extrae el día y la fecha de un texto, soportando fechas específicas (DD/MM/YYYY)
-    y días de la semana, incluyendo eventos recurrentes con fecha de finalización.
-    """
+    """Extrae el día y la fecha de un texto."""
     text_lower = text.lower()
     
     # 1. Comprobar si es un evento recurrente con fecha de finalización
@@ -189,47 +179,37 @@ def send_whatsapp_message(to, body):
 def get_events_for_today():
     """Obtiene todos los eventos para el día de hoy, tanto recurrentes como únicos,
     priorizando los únicos en caso de conflicto."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
+    if not db:
+        return []
     today = datetime.date.today()
     today_en = today.strftime('%A')
     today_str = today.strftime('%Y-%m-%d')
     
-    try:
-        # Eventos únicos para hoy
-        cursor.execute(
-            "SELECT id, evento_texto, hora FROM eventos WHERE fecha = ?",
-            (today_str,)
-        )
-        one_off_events = cursor.fetchall()
-        
-        # Obtener las horas de los eventos únicos para filtrar los recurrentes
-        one_off_hours = {event[2] for event in one_off_events}
+    one_off_events = []
+    recurring_events = []
+    
+    # Eventos únicos para hoy
+    docs = db.collection("eventos").where("fecha", "==", today_str).stream()
+    one_off_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"]) for doc in docs]
+    
+    # Obtener las horas de los eventos únicos para filtrar los recurrentes
+    one_off_hours = {event[2] for event in one_off_events}
 
-        # Eventos recurrentes para hoy
-        cursor.execute(
-            "SELECT id, evento_texto, hora FROM eventos WHERE dia_semana = ? AND recurrente = 1",
-            (today_en,)
-        )
-        all_recurring_events = cursor.fetchall()
-        
-        # Filtrar los eventos recurrentes que tienen conflicto con eventos únicos
-        recurring_events = [event for event in all_recurring_events if event[2] not in one_off_hours]
-        
-        all_events = one_off_events + recurring_events
-        return sorted(all_events, key=lambda x: x[2])
-    except sqlite3.Error as e:
-        print(f"Error al obtener eventos: {e}")
-        return []
-    finally:
-        conn.close()
+    # Eventos recurrentes para hoy
+    docs = db.collection("eventos").where("dia_semana", "==", today_en).where("recurrente", "==", True).stream()
+    all_recurring_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"]) for doc in docs]
+    
+    # Filtrar los eventos recurrentes que tienen conflicto con eventos únicos
+    recurring_events = [event for event in all_recurring_events if event[2] not in one_off_hours]
+    
+    all_events = one_off_events + recurring_events
+    return sorted(all_events, key=lambda x: x[2])
 
 def get_events_for_a_day(dia_texto):
     """Obtiene los eventos para un día de la semana específico, tanto únicos como recurrentes,
     priorizando los únicos en caso de conflicto."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
+    if not db:
+        return []
     today = datetime.date.today()
     current_day_index = today.weekday()
     dia_es = dia_texto.lower()
@@ -243,88 +223,57 @@ def get_events_for_a_day(dia_texto):
     target_date = today + datetime.timedelta(days=days_until_target)
     target_date_str = target_date.strftime('%Y-%m-%d')
 
-    try:
-        # Eventos únicos para el día objetivo
-        cursor.execute(
-            "SELECT id, evento_texto, hora, fecha, recurrente FROM eventos WHERE fecha = ?",
-            (target_date_str,)
-        )
-        one_off_events = cursor.fetchall()
+    one_off_events = []
+    recurring_events = []
+    
+    # Eventos únicos para el día objetivo
+    docs = db.collection("eventos").where("fecha", "==", target_date_str).stream()
+    one_off_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["fecha"], doc.to_dict()["recurrente"]) for doc in docs]
 
-        # Obtener las horas de los eventos únicos para filtrar los recurrentes
-        one_off_hours = {event[2] for event in one_off_events}
+    # Obtener las horas de los eventos únicos para filtrar los recurrentes
+    one_off_hours = {event[2] for event in one_off_events}
 
-        # Eventos recurrentes para el día objetivo
-        cursor.execute(
-            "SELECT id, evento_texto, hora, fecha, recurrente FROM eventos WHERE dia_semana = ? AND recurrente = 1",
-            (dia_en,)
-        )
-        all_recurring_events = cursor.fetchall()
+    # Eventos recurrentes para el día objetivo
+    docs = db.collection("eventos").where("dia_semana", "==", dia_en).where("recurrente", "==", True).stream()
+    all_recurring_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["fecha"], doc.to_dict()["recurrente"]) for doc in docs]
 
-        # Filtrar los eventos recurrentes que tienen conflicto con eventos únicos
-        recurring_events = [event for event in all_recurring_events if event[2] not in one_off_hours]
+    # Filtrar los eventos recurrentes que tienen conflicto con eventos únicos
+    recurring_events = [event for event in all_recurring_events if event[2] not in one_off_hours]
 
-        all_events = one_off_events + recurring_events
-        return sorted(all_events, key=lambda x: x[2])
-    except sqlite3.Error as e:
-        print(f"Error al obtener eventos para el día {dia_texto}: {e}")
-        return []
-    finally:
-        conn.close()
+    all_events = one_off_events + recurring_events
+    return sorted(all_events, key=lambda x: x[2])
 
 def get_all_events():
-    """Obtiene todos los eventos de la base de datos."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
+    """Obtiene todos los eventos de Firebase."""
+    if not db:
+        return []
     try:
-        cursor.execute(
-            "SELECT id, evento_texto, dia_semana, fecha, hora, recurrente FROM eventos ORDER BY fecha, hora"
-        )
-        return cursor.fetchall()
-    except sqlite3.Error as e:
+        docs = db.collection("eventos").stream()
+        return [(doc.id, doc.to_dict()) for doc in docs]
+    except Exception as e:
         print(f"Error al obtener todos los eventos: {e}")
         return []
-    finally:
-        conn.close()
 
 def get_events_for_day_and_time(dia_semana, fecha, hora):
-    """Obtiene eventos que coinciden con un día, fecha y hora específicos para detección de conflictos.
-    Esta función ahora busca tanto eventos únicos como recurrentes."""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    try:
-        conflicts = []
-        if fecha:
-            # Buscar conflicto en la fecha específica (evento único)
-            cursor.execute(
-                "SELECT id, evento_texto, hora, recurrente FROM eventos WHERE fecha = ? AND hora = ?",
-                (fecha.strftime('%Y-%m-%d'), hora)
-            )
-            conflicts += cursor.fetchall()
-
-            # Buscar conflicto con un evento recurrente en ese mismo día
-            cursor.execute(
-                "SELECT id, evento_texto, hora, recurrente FROM eventos WHERE dia_semana = ? AND recurrente = 1 AND hora = ?",
-                (dia_semana, hora)
-            )
-            conflicts += cursor.fetchall()
-
-        else:
-            # Buscar conflicto en el día de la semana para eventos recurrentes
-            cursor.execute(
-                "SELECT id, evento_texto, hora, recurrente FROM eventos WHERE dia_semana = ? AND hora = ?",
-                (dia_semana, hora)
-            )
-            conflicts += cursor.fetchall()
-        
-        return conflicts
-    except sqlite3.Error as e:
-        print(f"Error al buscar conflictos: {e}")
+    """Obtiene eventos que coinciden con un día, fecha y hora específicos para detección de conflictos."""
+    if not db:
         return []
-    finally:
-        conn.close()
+    conflicts = []
+    
+    if fecha:
+        # Buscar conflicto en la fecha específica (evento único)
+        docs = db.collection("eventos").where("fecha", "==", fecha.strftime('%Y-%m-%d')).where("hora", "==", hora).stream()
+        conflicts.extend([(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["recurrente"]) for doc in docs])
+        
+        # Buscar conflicto con un evento recurrente en ese mismo día
+        docs = db.collection("eventos").where("dia_semana", "==", dia_semana).where("recurrente", "==", True).where("hora", "==", hora).stream()
+        conflicts.extend([(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["recurrente"]) for doc in docs])
+    else:
+        # Buscar conflicto en el día de la semana para eventos recurrentes
+        docs = db.collection("eventos").where("dia_semana", "==", dia_semana).where("hora", "==", hora).stream()
+        conflicts.extend([(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["recurrente"]) for doc in docs])
+    
+    return conflicts
 
 def daily_routine_message():
     """Genera y envía el mensaje de rutina matutina con ejemplos de comandos."""
@@ -337,6 +286,14 @@ def daily_routine_message():
             mensaje += f"- {hora}: {evento} (ID: {id})\n"
     else:
         mensaje = f"¡Buenos días! No tienes eventos programados para hoy ({dia_semana_actual_es})."
+
+    # Agregar ejemplos de comandos al final del mensaje
+    mensaje += "\n---\n*Ejemplos de comandos:*\n"
+    mensaje += "• *Agregar evento único:* `agregar evento 26/08/2025 a las 12:00 arreglar la sala`\n"
+    mensaje += "• *Agregar evento recurrente:* `agregar evento todos los lunes hasta el 30/12/2025 a las 15:00 leer un libro`\n"
+    mensaje += "• *Listar eventos del día:* `listar eventos para el viernes`\n"
+    mensaje += "• *Ver todos los eventos:* `mostrar eventos`\n"
+    mensaje += "• *Borrar evento:* `borrar evento [ID del evento]`"
 
     send_whatsapp_message(YOUR_PHONE_NUMBER, mensaje)
 
@@ -368,17 +325,27 @@ def whatsapp_reply():
     msg = request.form.get('Body')
     from_number = request.form.get('From')
     resp = MessagingResponse()
+
+    if not db:
+        resp.message("Error interno del servidor. La base de datos no está inicializada.")
+        return str(resp)
     
     # --- Lógica para borrar un evento ---
     if msg.lower().startswith("borrar evento"):
         try:
-            event_id = int(re.search(r'(\d+)', msg).group(1))
-            if delete_event(event_id):
-                resp.message(f"El evento con ID {event_id} ha sido borrado.")
+            # La expresión regular ahora busca el ID del documento
+            match = re.search(r'borrar evento\s+([\w\d]+)', msg, re.IGNORECASE)
+            if match:
+                event_id = match.group(1)
+                if delete_event(event_id):
+                    resp.message(f"El evento con ID `{event_id}` ha sido borrado.")
+                else:
+                    resp.message(f"No se pudo borrar el evento con ID `{event_id}`. Quizás no existe o hubo un error.")
             else:
-                resp.message(f"No se pudo borrar el evento con ID {event_id}. ¿Quizás no existe?")
-        except (AttributeError, ValueError):
-            resp.message("Formato no reconocido. Usa 'borrar evento [ID]'.")
+                resp.message("Formato no reconocido. Usa 'borrar evento [ID]'.")
+        except Exception as e:
+            print(f"Error al procesar el borrado del evento: {e}")
+            resp.message("Hubo un error al procesar tu solicitud de borrado. Por favor, intenta de nuevo.")
         return str(resp)
 
     # --- Manejar la respuesta a un conflicto de horarios ---
@@ -392,11 +359,9 @@ def whatsapp_reply():
             new_event_data = state['new_event_data']
             
             # Obtener los datos completos del evento en conflicto para verificar si es recurrente
-            conn = sqlite3.connect(DB_FILE)
-            cursor = conn.cursor()
-            cursor.execute("SELECT recurrente FROM eventos WHERE id = ?", (state['conflicting_event_id'],))
-            conflicting_event_is_recurring = cursor.fetchone()[0]
-            conn.close()
+            conflicting_event_ref = db.collection("eventos").document(state['conflicting_event_id'])
+            conflicting_event_data = conflicting_event_ref.get().to_dict()
+            conflicting_event_is_recurring = conflicting_event_data.get("recurrente", False)
 
             if choice == 1:
                 # Lógica de reemplazo (conservar el nuevo evento)
@@ -424,7 +389,10 @@ def whatsapp_reply():
         except ValueError:
             resp.message("Respuesta no válida. Por favor, responde con el número 1 o 2.")
             return str(resp)
-
+        except Exception as e:
+            print(f"Error al procesar la respuesta al conflicto: {e}")
+            resp.message("Hubo un error al procesar tu respuesta. Por favor, inténtalo de nuevo.")
+            
         del CONVERSATION_STATE[from_number]
         return str(resp)
 
@@ -503,14 +471,14 @@ def whatsapp_reply():
                     
                     added_count = 0
                     while current_date <= fecha_fin:
-                        if insert_event(evento, dia, current_date.strftime('%Y-%m-%d'), hora, False):
+                        if insert_event(evento, dia, current_date, hora, False):
                             added_count += 1
                         current_date += datetime.timedelta(days=7)
 
                     resp.message(f"¡Evento '{evento}' agregado para todos los {get_spanish_day_name(dia).lower()} hasta el {fecha_fin.strftime('%d/%m/%Y')}!")
                 else:
                     fecha_str = fecha.strftime('%Y-%m-%d') if fecha else None
-                    if insert_event(evento, dia, fecha_str, hora, recurrente):
+                    if insert_event(evento, dia, fecha, hora, recurrente):
                         if recurrente:
                             dia_espanol = get_spanish_day_name(dia)
                             resp.message(f"¡Evento '{evento}' agregado para todos los {dia_espanol.lower()} a las {hora}!")
@@ -531,15 +499,16 @@ def whatsapp_reply():
         
         if eventos:
             mensaje = "Aquí están todos tus eventos programados:\n"
-            for id, evento, dia_semana, fecha, hora, recurrente in eventos:
+            for id, data in eventos:
+                evento, dia_semana, fecha, hora, recurrente = data["evento_texto"], data["dia_semana"], data["fecha"], data["hora"], data["recurrente"]
                 if recurrente:
                     dia_espanol = get_spanish_day_name(dia_semana)
-                    mensaje += f"{id} - Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
+                    mensaje += f"ID: {id} - Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
                 else:
                     fecha_obj = datetime.datetime.strptime(fecha, '%Y-%m-%d')
                     dia_espanol = get_spanish_day_name(fecha_obj.strftime('%A'))
                     fecha_formateada = fecha_obj.strftime('%d/%m/%Y')
-                    mensaje += f"{id} - {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
+                    mensaje += f"ID: {id} - {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
         else:
             mensaje = "No tienes eventos programados en este momento."
             
@@ -553,7 +522,7 @@ def whatsapp_reply():
         if eventos:
             mensaje = f"Eventos programados para el {dia_texto.capitalize()}:\n"
             for id, evento, hora, _, _ in eventos:
-                mensaje += f"{id} - {hora}: {evento}\n"
+                mensaje += f"ID: {id} - {hora}: {evento}\n"
         else:
             mensaje = f"No tienes eventos programados para el {dia_texto.capitalize()}."
         resp.message(mensaje)
@@ -577,7 +546,7 @@ def whatsapp_reply():
         if eventos_pendientes:
             mensaje = f"Eventos pendientes para hoy ({dia_semana_actual_es}):\n"
             for id, evento, hora in eventos_pendientes:
-                mensaje += f"{id} - {hora}: {evento}\n"
+                mensaje += f"ID: {id} - {hora}: {evento}\n"
         else:
             mensaje = "No tienes eventos pendientes para hoy. ¡Disfruta el resto de tu día!"
             
@@ -590,7 +559,6 @@ def whatsapp_reply():
     return str(resp)
 
 if __name__ == "__main__":
-    init_db()
     scheduler = BackgroundScheduler()
     scheduler.add_job(daily_routine_message, 'cron', hour=6, minute=0)
     scheduler.add_job(schedule_reminders, 'cron', hour=5, minute=55)
