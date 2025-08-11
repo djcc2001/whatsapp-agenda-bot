@@ -676,6 +676,7 @@ def whatsapp_reply():
         eventos = get_events_for_today()
         eventos_pendientes = []
         hora_actual_obj = datetime.datetime.now().time()
+        hora_actual_obj = hora_actual_obj.astimezone(LOCAL_TIMEZONE)
   
         for id, evento, hora_db, conteo in eventos:
             try:
