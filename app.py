@@ -675,8 +675,10 @@ def whatsapp_reply():
     elif "listar eventos" in msg.lower():
         eventos = get_events_for_today()
         eventos_pendientes = []
-        hora_actual_obj = datetime.datetime.now().time()
-        hora_actual_obj = hora_actual_obj.astimezone(LOCAL_TIMEZONE)
+        # 1. Obtener el objeto datetime completo con la zona horaria local.
+        now_local = datetime.datetime.now(LOCAL_TIMEZONE)
+        # 2. Extraer solo el objeto de tiempo para la comparación.
+        hora_actual_obj = now_local.time()
   
         for id, evento, hora_db, conteo in eventos:
             try:
@@ -711,3 +713,4 @@ if __name__ == "__main__":
     scheduler.start()
  
     app.run(debug=True)
+
