@@ -434,16 +434,25 @@ def whatsapp_reply():
                 resp.message("Formato de día u hora no reconocido. Asegúrate de usar una fecha (DD/MM/YYYY), un día de la semana, 'hoy' o 'mañana', seguido de la hora en formato 24 horas (HH:MM).")
                 return str(resp)
 
-            if fecha and fecha == datetime.date.today() and datetime.datetime.strptime(hora, '%H:%M').time() < datetime.datetime.now().time():
-                resp.message("¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. Por favor, elige una hora futura.")
-                return str(resp)
+            # --- ESTA ES LA LÍNEA QUE DEBES REEMPLAZAR O CORREGIR ---
+            # La nueva lógica compara el objeto datetime completo del evento con el actual.
+            if fecha and fecha == datetime.date.today():
+                evento_hoy_datetime = datetime.datetime.now().replace(
+                    hour=int(hora.split(':')[0]), 
+                    minute=int(hora.split(':')[1]), 
+                    second=0, 
+                    microsecond=0
+                )
+                if evento_hoy_datetime <= datetime.datetime.now():
+                    resp.message("¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. Por favor, elige una hora futura.")
+                    return str(resp)
             
             descripcion_match = re.search(r'(\d{1,2}:\d{2})', horario_y_descripcion)
             if descripcion_match:
                 evento = horario_y_descripcion[descripcion_match.end():].strip()
             else:
                 evento = "Evento sin descripción"
-            
+                
             if not evento:
                  evento = "Evento sin descripción"
                 
@@ -503,7 +512,7 @@ def whatsapp_reply():
         except (IndexError, ValueError, re.error) as e:
             print(f"Error al procesar el mensaje: {e}")
             resp.message("Hubo un error al procesar el formato del mensaje. Asegúrate de usar un formato claro. Ejemplos: 'agregar evento hoy a las 10:00 reunión', 'agregar evento 26/08/2025 a las 12:00 arreglar la sala', o 'agregar evento todos los martes hasta el 26/08/2025 a las 9:00 clases en la U'")
-    
+
     # --- Lógica para mostrar todos los eventos programados ---
     elif "mostrar eventos" in msg.lower():
         eventos = get_all_events()
@@ -661,6 +670,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     app.run(debug=True)
+
 
 
 
