@@ -556,65 +556,79 @@ def whatsapp_reply():
     # --- Lógica para mostrar todos los eventos programados ---
     elif "mostrar eventos" in msg.lower():
         eventos = get_all_events()
- 
+
         if eventos:
             MAX_MESSAGE_LENGTH = 1500
+            
+            # OBTENER EL TIEMPO ACTUAL CON ZONA HORARIA
+            # Esta es la forma más segura de obtener un objeto 'aware'.
             ahora = datetime.datetime.now(LOCAL_TIMEZONE)
+
             eventos_con_proxima_fecha = []
-  
+
             # Mapeo de días de la semana de inglés a español
-            # La función get_spanish_day_name ya hace esto, pero es útil tener el mapeo
-            # aquí para la lógica de búsqueda de la próxima fecha.
             english_days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-  
+
             for id, data in eventos:
                 if data.get("recurrente"):
                     # Calcular la próxima fecha para un evento recurrente
                     dia_semana_recurrente = data.get("dia_semana")
- 
+
                     # Encontrar el índice del día de la semana actual
                     dia_semana_ahora = ahora.weekday() # Lunes es 0, Domingo es 6
- 
+
                     # Encontrar el índice del día de la semana del evento
-                    dia_semana_evento = english_days.index(dia_semana_recurrente)
-  
+                    try:
+                        dia_semana_evento = english_days.index(dia_semana_recurrente)
+                    except ValueError:
+                        continue  # Si el día de la semana no es válido, pasamos al siguiente evento
+
                     # Calcular cuántos días faltan para el próximo evento
                     dias_a_sumar = dia_semana_evento - dia_semana_ahora
 
                     if dias_a_sumar < 0:
                         dias_a_sumar += 7
-  
+
                     # Si el evento es hoy, revisamos la hora
                     hora_evento_str = data.get("hora")
-                    hora_evento = datetime.datetime.strptime(hora_evento_str, '%H:%M').time()
-  
+                    try:
+                        hora_evento = datetime.datetime.strptime(hora_evento_str, '%H:%M').time()
+                    except ValueError:
+                        continue  # Si la hora no es válida, pasamos al siguiente evento
+
                     if dias_a_sumar == 0 and hora_evento < ahora.time():
                         dias_a_sumar += 7 # Pasamos a la siguiente semana
-  
+
                     proxima_fecha = ahora + datetime.timedelta(days=dias_a_sumar)
-  
+
                     # Establecer la hora del evento
                     proxima_fecha = proxima_fecha.replace(hour=hora_evento.hour, minute=hora_evento.minute, second=0, microsecond=0)
- 
+
                     data["proxima_fecha"] = proxima_fecha
                     eventos_con_proxima_fecha.append((id, data))
                 else:
                     # Calcular la próxima fecha para un evento no recurrente
                     fecha_evento_str = data.get("fecha")
                     hora_evento_str = data.get("hora")
-                    evento_datetime = datetime.datetime.strptime(f"{fecha_evento_str} {hora_evento_str}", '%Y-%m-%d %H:%M')
-  
+                    try:
+                        # 1. Crear el objeto datetime naive
+                        naive_evento_datetime = datetime.datetime.strptime(f"{fecha_evento_str} {hora_evento_str}", '%Y-%m-%d %H:%M')
+                        # 2. Asignarle la zona horaria para que sea 'aware'
+                        evento_datetime = LOCAL_TIMEZONE.localize(naive_evento_datetime)
+                    except (ValueError, pytz.NonExistentTimeError, pytz.AmbiguousTimeError):
+                        continue  # Si la fecha/hora no es válida o ambigua, pasamos al siguiente evento
+
                     if evento_datetime >= ahora:
                         data["proxima_fecha"] = evento_datetime
                         eventos_con_proxima_fecha.append((id, data))
-  
+
             if eventos_con_proxima_fecha:
                 # Ordenamos todos los eventos por la próxima fecha
                 eventos_con_proxima_fecha.sort(key=lambda x: x[1].get('proxima_fecha'))
- 
+
                 # Inicializamos el primer mensaje
                 mensaje_actual = "Aquí están tus eventos programados en orden cronológico:\n\n"
- 
+
                 # Recorremos cada evento para construir los mensajes
                 for id, data in eventos_con_proxima_fecha:
                     evento, dia_semana, fecha, hora, recurrente, conteo = (
@@ -625,17 +639,17 @@ def whatsapp_reply():
                         data["recurrente"],
                         data["conteo"]
                     )
-  
+
                     # Construimos la línea de texto para el evento actual
                     if recurrente:
                         dia_espanol = get_spanish_day_name(dia_semana)
-                        linea_evento = f"Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
+                        linea_evento = f"• {conteo}: Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
                     else:
                         fecha_obj = datetime.datetime.strptime(fecha, '%Y-%m-%d')
                         dia_espanol = get_spanish_day_name(fecha_obj.strftime('%A'))
                         fecha_formateada = fecha_obj.strftime('%d/%m/%Y')
-                        linea_evento = f"{dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
-  
+                        linea_evento = f"• {conteo}: {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
+
                     # Verificamos si la línea actual excede el límite del mensaje
                     if len(mensaje_actual) + len(linea_evento) > MAX_MESSAGE_LENGTH:
                         # Si lo excede, enviamos el mensaje actual
@@ -645,7 +659,7 @@ def whatsapp_reply():
                     else:
                         # Si no lo excede, añadimos la línea al mensaje actual
                         mensaje_actual += linea_evento
-  
+
                 # Enviamos el último mensaje restante
                 if mensaje_actual.strip():
                     resp.message(mensaje_actual)
@@ -679,7 +693,7 @@ def whatsapp_reply():
         now_local = datetime.datetime.now(LOCAL_TIMEZONE)
         # 2. Extraer solo el objeto de tiempo para la comparación.
         hora_actual_obj = now_local.time()
-  
+
         for id, evento, hora_db, conteo in eventos:
             try:
                 hora_evento_obj = datetime.datetime.strptime(hora_db, '%H:%M').time()
@@ -713,6 +727,3 @@ if __name__ == "__main__":
     scheduler.start()
  
     app.run(debug=True)
-
-
-
