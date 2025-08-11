@@ -515,16 +515,21 @@ def whatsapp_reply():
     
             # Filtramos solo los eventos que no han pasado
             eventos_filtrados = []
-            hoy = datetime.date.today()
+            ahora = datetime.datetime.now()
     
             for id, data in eventos:
                 if data.get("recurrente"):
                     # Los eventos recurrentes siempre se incluyen
                     eventos_filtrados.append((id, data))
                 else:
-                    # Los eventos no recurrentes se incluyen solo si la fecha es hoy o en el futuro
-                    fecha_evento = datetime.datetime.strptime(data.get("fecha"), '%Y-%m-%d').date()
-                    if fecha_evento >= hoy:
+                    # Los eventos no recurrentes se incluyen solo si la fecha y la hora no han pasado
+                    fecha_evento_str = data.get("fecha")
+                    hora_evento_str = data.get("hora")
+                    
+                    # Creamos un objeto datetime para comparar
+                    evento_datetime = datetime.datetime.strptime(f"{fecha_evento_str} {hora_evento_str}", '%Y-%m-%d %H:%M')
+    
+                    if evento_datetime >= ahora:
                         eventos_filtrados.append((id, data))
     
             if eventos_filtrados:
@@ -630,6 +635,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     app.run(debug=True)
+
 
 
 
