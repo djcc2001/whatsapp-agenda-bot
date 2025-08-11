@@ -466,7 +466,7 @@ def whatsapp_reply():
                         microsecond=0
                     )
                     if evento_hoy_datetime <= datetime.datetime.now():
-                        resp.message("¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. Por favor, elige una hora futura.")
+                        resp.message("¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. Por favor, elige una hora futura :C.")
                         return str(resp)
                 except ValueError:
                     # En caso de un error en el formato de la hora
@@ -700,3 +700,4 @@ if __name__ == "__main__":
     scheduler.start()
  
     app.run(debug=True)
+
