@@ -94,6 +94,7 @@ Permite administrar eventos (únicos o recurrentes), enviar recordatorios y mane
   gunicorn
   google-generativeai
   firebase-admin
+  pytz
   ```
 ---
 
