@@ -533,8 +533,21 @@ def whatsapp_reply():
                         eventos_filtrados.append((id, data))
     
             if eventos_filtrados:
-                # Ordenar eventos por el campo 'conteo'
-                eventos_filtrados.sort(key=lambda x: x[1].get('conteo', 0))
+                # Función para determinar el orden de los eventos
+                def get_sort_key(item):
+                    id, data = item
+                    if data.get("recurrente"):
+                        # Para eventos recurrentes, ordenamos por el día de la semana y la hora.
+                        # Asignamos un valor numérico a cada día para ordenar correctamente.
+                        day_map = {'Monday': 1, 'Tuesday': 2, 'Wednesday': 3, 'Thursday': 4, 'Friday': 5, 'Saturday': 6, 'Sunday': 7}
+                        return (1, day_map.get(data.get("dia_semana"), 8), data.get("hora"))
+                    else:
+                        # Para eventos no recurrentes, ordenamos por fecha y hora.
+                        fecha_obj = datetime.datetime.strptime(data.get("fecha"), '%Y-%m-%d')
+                        return (0, fecha_obj, data.get("hora'))
+    
+                # Ordenar eventos usando la nueva función de clave
+                eventos_filtrados.sort(key=get_sort_key)
     
                 # Inicializamos el primer mensaje
                 mensaje_actual = "Aquí están todos tus eventos programados:\n\n"
@@ -635,6 +648,7 @@ if __name__ == "__main__":
     scheduler.start()
 
     app.run(debug=True)
+
 
 
 
