@@ -41,14 +41,48 @@ Permite administrar eventos (únicos o recurrentes), enviar recordatorios y mane
    cd whatsapp-bot
 
 2. **Crear y activar entorno virtual**
-  ```bash
-  python -m venv venv
-  # Windows
-  venv\Scripts\activate
-  # Linux/Mac
-  source venv/bin/activate
+   ```bash
+   python -m venv venv
+   # Windows
+   venv\Scripts\activate
+   # Linux/Mac
+   source venv/bin/activate
+   
+3. **Instalar dependencias**
+   ```bash
+   pip install -r requirements.txt
 
-3. **Crear y activar entorno virtual**
+4. **Archivo .env**
+   Crear un archivo .env con el siguiente contenido (reemplaza los valores con tus    credenciales):
+   ```bash
+   TWILIO_ACCOUNT_SID=xxxxxxxxxxxxxxxx
+    TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxx
+    TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
+    YOUR_PHONE_NUMBER=whatsapp:+[tu_numero]
+    
+    GEMINI_API_KEY=xxxxxxxxxxxxxxxx
+    
+    FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"...","private_key_id":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...","client_email":"...","client_id":"...","auth_uri":"...","token_uri":"...","auth_provider_x509_cert_url":"...","client_x509_cert_url":"..."}
+
+5. **Ejecutar en local**
+   ```bash
+   python app.py
+
+6. **Exponer con ngrok (para pruebas de Twilio)**
+   ```bash
+   ngrok http 5000
+
+  **Luego configurar en Twilio el webhook con la URL generada:**
+    ```bash
+    
+    https://<tu-ngrok-id>.ngrok.io/whatsapp
+
+---
+
+## 📦 requirements.txt
+   
+
+
   
 
 
