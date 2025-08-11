@@ -60,32 +60,51 @@ DIA_SEMANA_MAP = {
     'domingo': 'Sunday'
 }
 
+def get_next_conteo():
+    """Obtiene el siguiente número de conteo para un nuevo evento."""
+    if not db:
+        return 1
+    try:
+        docs = db.collection("eventos").order_by("conteo", direction=firestore.Query.DESCENDING).limit(1).stream()
+        for doc in docs:
+            return doc.to_dict().get("conteo", 0) + 1
+        return 1
+    except Exception as e:
+        print(f"Error al obtener el siguiente conteo: {e}")
+        return 1
+
 def insert_event(evento_texto, dia_semana, fecha, hora, recurrente):
     """Inserta un nuevo evento en Firebase."""
     if not db:
         print("Error: La base de datos no está inicializada.")
         return False
     try:
+        next_conteo = get_next_conteo()
         db.collection("eventos").add({
             "evento_texto": evento_texto,
             "dia_semana": dia_semana,
             "fecha": fecha.strftime('%Y-%m-%d') if fecha else None,
             "hora": hora,
-            "recurrente": recurrente
+            "recurrente": recurrente,
+            "conteo": next_conteo  # Agregamos el campo 'conteo'
         })
         return True
     except Exception as e:
         print(f"Error al insertar evento en Firestore: {e}")
         return False
 
-def delete_event(event_id):
-    """Elimina un evento de Firebase por su ID."""
+def delete_event_by_conteo(conteo):
+    """Elimina un evento de Firebase por su número de conteo."""
     if not db:
         print("Error: La base de datos no está inicializada.")
         return False
     try:
-        db.collection("eventos").document(event_id).delete()
-        return True
+        # Buscamos el documento que coincida con el número de conteo
+        docs = db.collection("eventos").where("conteo", "==", conteo).stream()
+        for doc_to_delete in docs:
+            db.collection("eventos").document(doc_to_delete.id).delete()
+            return True
+        return False  # No se encontró el evento con ese conteo
     except Exception as e:
         print(f"Error al eliminar evento en Firestore: {e}")
         return False
@@ -190,14 +209,14 @@ def get_events_for_today():
     
     # Eventos únicos para hoy
     docs = db.collection("eventos").where("fecha", "==", today_str).stream()
-    one_off_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"]) for doc in docs]
+    one_off_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["conteo"]) for doc in docs]
     
     # Obtener las horas de los eventos únicos para filtrar los recurrentes
     one_off_hours = {event[2] for event in one_off_events}
 
     # Eventos recurrentes para hoy
     docs = db.collection("eventos").where("dia_semana", "==", today_en).where("recurrente", "==", True).stream()
-    all_recurring_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"]) for doc in docs]
+    all_recurring_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["conteo"]) for doc in docs]
     
     # Filtrar los eventos recurrentes que tienen conflicto con eventos únicos
     recurring_events = [event for event in all_recurring_events if event[2] not in one_off_hours]
@@ -228,14 +247,14 @@ def get_events_for_a_day(dia_texto):
     
     # Eventos únicos para el día objetivo
     docs = db.collection("eventos").where("fecha", "==", target_date_str).stream()
-    one_off_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["fecha"], doc.to_dict()["recurrente"]) for doc in docs]
+    one_off_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["fecha"], doc.to_dict()["recurrente"], doc.to_dict()["conteo"]) for doc in docs]
 
     # Obtener las horas de los eventos únicos para filtrar los recurrentes
     one_off_hours = {event[2] for event in one_off_events}
 
     # Eventos recurrentes para el día objetivo
     docs = db.collection("eventos").where("dia_semana", "==", dia_en).where("recurrente", "==", True).stream()
-    all_recurring_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["fecha"], doc.to_dict()["recurrente"]) for doc in docs]
+    all_recurring_events = [(doc.id, doc.to_dict()["evento_texto"], doc.to_dict()["hora"], doc.to_dict()["fecha"], doc.to_dict()["recurrente"], doc.to_dict()["conteo"]) for doc in docs]
 
     # Filtrar los eventos recurrentes que tienen conflicto con eventos únicos
     recurring_events = [event for event in all_recurring_events if event[2] not in one_off_hours]
@@ -282,8 +301,8 @@ def daily_routine_message():
 
     if eventos:
         mensaje = f"¡Buenos días! Tu rutina para hoy ({dia_semana_actual_es}) es:\n"
-        for id, evento, hora in eventos:
-            mensaje += f"- {hora}: {evento} (ID: {id})\n"
+        for id, evento, hora, conteo in eventos:
+            mensaje += f"• {conteo}: {hora}: {evento}\n"
     else:
         mensaje = f"¡Buenos días! No tienes eventos programados para hoy ({dia_semana_actual_es})."
 
@@ -293,7 +312,7 @@ def daily_routine_message():
     mensaje += "• *Agregar evento recurrente:* `agregar evento todos los lunes hasta el 30/12/2025 a las 15:00 leer un libro`\n"
     mensaje += "• *Listar eventos del día:* `listar eventos para el viernes`\n"
     mensaje += "• *Ver todos los eventos:* `mostrar eventos`\n"
-    mensaje += "• *Borrar evento:* `borrar evento [ID del evento]`"
+    mensaje += "• *Borrar evento:* `borrar evento [conteo]`"
 
     send_whatsapp_message(YOUR_PHONE_NUMBER, mensaje)
 
@@ -302,7 +321,7 @@ def schedule_reminders():
     eventos = get_events_for_today()
     ahora = datetime.datetime.now()
 
-    for id, evento, hora_db in eventos:
+    for id, evento, hora_db, conteo in eventos:
         try:
             hora_evento_obj = datetime.datetime.strptime(hora_db, '%H:%M')
         except ValueError:
@@ -333,16 +352,16 @@ def whatsapp_reply():
     # --- Lógica para borrar un evento ---
     if msg.lower().startswith("borrar evento"):
         try:
-            # La expresión regular ahora busca el ID del documento
-            match = re.search(r'borrar evento\s+([\w\d]+)', msg, re.IGNORECASE)
+            # Ahora busca un número de conteo
+            match = re.search(r'borrar evento\s+(\d+)', msg, re.IGNORECASE)
             if match:
-                event_id = match.group(1)
-                if delete_event(event_id):
-                    resp.message(f"El evento con ID `{event_id}` ha sido borrado.")
+                conteo_a_borrar = int(match.group(1))
+                if delete_event_by_conteo(conteo_a_borrar):
+                    resp.message(f"El evento número {conteo_a_borrar} ha sido borrado.")
                 else:
-                    resp.message(f"No se pudo borrar el evento con ID `{event_id}`. Quizás no existe o hubo un error.")
+                    resp.message(f"No se pudo borrar el evento número {conteo_a_borrar}. Quizás no existe o hubo un error.")
             else:
-                resp.message("Formato no reconocido. Usa 'borrar evento [ID]'.")
+                resp.message("Formato no reconocido. Usa 'borrar evento [conteo]'.")
         except Exception as e:
             print(f"Error al procesar el borrado del evento: {e}")
             resp.message("Hubo un error al procesar tu solicitud de borrado. Por favor, intenta de nuevo.")
@@ -367,14 +386,14 @@ def whatsapp_reply():
                 # Lógica de reemplazo (conservar el nuevo evento)
                 if conflicting_event_is_recurring:
                     # Si es recurrente, solo insertamos el nuevo evento y dejamos el recurrente
-                    if insert_event(new_event_data['evento'], new_event_data['dia'], new_event_data['fecha_str'], new_event_data['hora'], new_event_data['recurrente']):
+                    if insert_event(new_event_data['evento'], new_event_data['dia'], datetime.datetime.strptime(new_event_data['fecha_str'], '%Y-%m-%d') if new_event_data['fecha_str'] else None, new_event_data['hora'], new_event_data['recurrente']):
                         resp.message(f"¡El nuevo evento se ha guardado para esa fecha! El evento recurrente original se ha conservado para los demás días.")
                     else:
                         resp.message("Hubo un error al guardar el nuevo evento. Por favor, inténtalo de nuevo.")
                 else:
                     # Si no es recurrente, borramos el antiguo y guardamos el nuevo
-                    if delete_event(state['conflicting_event_id']):
-                        if insert_event(new_event_data['evento'], new_event_data['dia'], new_event_data['fecha_str'], new_event_data['hora'], new_event_data['recurrente']):
+                    if db.collection("eventos").document(state['conflicting_event_id']).delete(): # No usamos la funcion delete_event_by_conteo porque aqui ya tenemos el ID directo de Firestore
+                        if insert_event(new_event_data['evento'], new_event_data['dia'], datetime.datetime.strptime(new_event_data['fecha_str'], '%Y-%m-%d') if new_event_data['fecha_str'] else None, new_event_data['hora'], new_event_data['recurrente']):
                             resp.message("¡El nuevo evento se ha guardado y el antiguo ha sido eliminado!")
                         else:
                             resp.message("Hubo un error al guardar el nuevo evento. Por favor, inténtalo de nuevo.")
@@ -456,7 +475,7 @@ def whatsapp_reply():
                 
                 message_conflict = f"¡Atención! Hay un conflicto de horario. Ya tienes el evento '{evento_conflicto}' a las {hora_conflicto}.\n¿Qué quieres hacer?\n"
                 if conflicting_is_recurring:
-                     message_conflict += "1. Conservar el evento nuevo (solo para esta fecha)\n"
+                    message_conflict += "1. Conservar el evento nuevo (solo para esta fecha)\n"
                 else:
                     message_conflict += "1. Conservar el evento nuevo (eliminará el antiguo)\n"
                 message_conflict += "2. Conservar el evento existente\nResponde con '1' o '2'."
@@ -498,17 +517,20 @@ def whatsapp_reply():
         eventos = get_all_events()
         
         if eventos:
+            # Ordenar eventos por el campo 'conteo' antes de mostrarlos
+            eventos.sort(key=lambda x: x[1].get('conteo', 0))
             mensaje = "Aquí están todos tus eventos programados:\n"
             for id, data in eventos:
-                evento, dia_semana, fecha, hora, recurrente = data["evento_texto"], data["dia_semana"], data["fecha"], data["hora"], data["recurrente"]
+                evento, dia_semana, fecha, hora, recurrente, conteo = data["evento_texto"], data["dia_semana"], data.get("fecha"), data["hora"], data["recurrente"], data["conteo"]
+                
                 if recurrente:
                     dia_espanol = get_spanish_day_name(dia_semana)
-                    mensaje += f"ID: {id} - Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
+                    mensaje += f"{conteo}: Todos los {dia_espanol.lower()} a las {hora}: {evento}\n"
                 else:
                     fecha_obj = datetime.datetime.strptime(fecha, '%Y-%m-%d')
                     dia_espanol = get_spanish_day_name(fecha_obj.strftime('%A'))
                     fecha_formateada = fecha_obj.strftime('%d/%m/%Y')
-                    mensaje += f"ID: {id} - {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
+                    mensaje += f"{conteo}: {dia_espanol} {fecha_formateada} a las {hora}: {evento}\n"
         else:
             mensaje = "No tienes eventos programados en este momento."
             
@@ -521,8 +543,9 @@ def whatsapp_reply():
         
         if eventos:
             mensaje = f"Eventos programados para el {dia_texto.capitalize()}:\n"
-            for id, evento, hora, _, _ in eventos:
-                mensaje += f"ID: {id} - {hora}: {evento}\n"
+            # Ahora usamos el conteo para mostrar en el mensaje
+            for id, evento, hora, _, _, conteo in eventos:
+                mensaje += f"{conteo}: {hora}: {evento}\n"
         else:
             mensaje = f"No tienes eventos programados para el {dia_texto.capitalize()}."
         resp.message(mensaje)
@@ -533,20 +556,20 @@ def whatsapp_reply():
         eventos_pendientes = []
         hora_actual_obj = datetime.datetime.now().time()
 
-        for id, evento, hora_db in eventos:
+        for id, evento, hora_db, conteo in eventos:
             try:
                 hora_evento_obj = datetime.datetime.strptime(hora_db, '%H:%M').time()
             except ValueError:
                 continue
             
             if hora_evento_obj >= hora_actual_obj:
-                eventos_pendientes.append((id, evento, hora_db))
+                eventos_pendientes.append((id, evento, hora_db, conteo))
 
         dia_semana_actual_es = get_spanish_day_name(datetime.date.today().strftime('%A'))
         if eventos_pendientes:
             mensaje = f"Eventos pendientes para hoy ({dia_semana_actual_es}):\n"
-            for id, evento, hora in eventos_pendientes:
-                mensaje += f"ID: {id} - {hora}: {evento}\n"
+            for id, evento, hora, conteo in eventos_pendientes:
+                mensaje += f"{conteo}: {hora}: {evento}\n"
         else:
             mensaje = "No tienes eventos pendientes para hoy. ¡Disfruta el resto de tu día!"
             
