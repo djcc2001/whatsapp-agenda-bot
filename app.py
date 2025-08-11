@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 import json
+import pytz
 
 # Cargar variables de entorno del archivo .env
 load_dotenv()
@@ -47,7 +48,9 @@ if firebase_json_key:
 else:
     print("Error: La variable de entorno 'FIREBASE_SERVICE_ACCOUNT_KEY' no está configurada.")
     db = None
- 
+
+LOCAL_TIMEZONE = pytz.timezone('America/Lima')
+
 # Estado de la conversación para manejar conflictos, se borra al reiniciar
 CONVERSATION_STATE = {}
  
@@ -457,11 +460,28 @@ def whatsapp_reply():
                 resp.message("Formato de día u hora no reconocido. Asegúrate de usar una fecha (DD/MM/YYYY), un día de la semana, 'hoy' o 'mañana', seguido de la hora en formato 24 horas (HH:MM).")
                 return str(resp)
   
-            if fecha and fecha == datetime.date.today() and datetime.datetime.strptime(hora, '%H:%M').time() < datetime.datetime.now().time():
-                resp.message(f"¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. "
-                     f"La hora actual del servidor es {datetime.datetime.now().time()}. "
-                     "Por favor, elige una hora futura.")
-                return str(resp)
+            if fecha and fecha == datetime.date.today():
+                try:
+                    # 1. Obtiene la hora actual del servidor (en su zona horaria, por ejemplo UTC)
+                    now_server = datetime.datetime.now()
+                    # 2. Convierte la hora del servidor a tu zona horaria local.
+                    now_local = now_server.astimezone(LOCAL_TIMEZONE)
+
+                    # 3. Crea el objeto datetime del evento usando tu hora local.
+                    evento_hoy_datetime = now_local.replace(
+                        hour=int(hora.split(':')[0]), 
+                        minute=int(hora.split(':')[1]), 
+                        second=0, 
+                        microsecond=0
+                    )
+
+                    # 4. Compara el evento (en tu zona horaria) con la hora local actual.
+                    if evento_hoy_datetime <= now_local:
+                        resp.message("¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. Por favor, elige una hora futura.")
+                        return str(resp)
+                except ValueError:
+                    resp.message("Formato de hora incorrecto. Por favor, usa HH:MM.")
+                    return str(resp)
   
             descripcion_match = re.search(r'(\d{1,2}:\d{2})', horario_y_descripcion)
 
