@@ -457,20 +457,13 @@ def whatsapp_reply():
                 resp.message("Formato de día u hora no reconocido. Asegúrate de usar una fecha (DD/MM/YYYY), un día de la semana, 'hoy' o 'mañana', seguido de la hora en formato 24 horas (HH:MM).")
                 return str(resp)
   
-            if fecha and fecha == datetime.date.today():
-                try:
-                    evento_hoy_datetime = datetime.datetime.now().replace(
-                        hour=int(hora.split(':')[0]), 
-                        minute=int(hora.split(':')[1]), 
-                        second=0, 
-                        microsecond=0
-                    )
-                    if evento_hoy_datetime <= datetime.datetime.now():
-                        resp.message("¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. Por favor, elige una hora futura :C.")
-                        return str(resp)
-                except ValueError:
-                    # En caso de un error en el formato de la hora
-                    resp.message("Formato de hora incorrecto. Por favor, usa HH:MM.")
+            if fecha and fecha == date.today():
+                hora_evento = datetime.strptime(hora, '%H:%M').time()
+                hora_actual = datetime.now().time()
+                if hora_evento < hora_actual:
+                    resp.message(f"¡Error! No puedes agregar un evento para una hora que ya ha pasado hoy. "
+                                f"La hora actual del servidor es {hora_actual.strftime('%H:%M')}. "
+                                "Por favor, elige una hora futura.")
                     return str(resp)
   
             descripcion_match = re.search(r'(\d{1,2}:\d{2})', horario_y_descripcion)
@@ -700,4 +693,5 @@ if __name__ == "__main__":
     scheduler.start()
  
     app.run(debug=True)
+
 
