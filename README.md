@@ -39,3 +39,23 @@ Permite administrar eventos (únicos o recurrentes), enviar recordatorios y mane
    ```bash
    git clone https://github.com/tuusuario/whatsapp-bot.git
    cd whatsapp-bot
+
+2. **Crear y activar entorno virtual**
+  ```bash
+  python -m venv venv
+  # Windows
+  venv\Scripts\activate
+  # Linux/Mac
+  source venv/bin/activate
+
+3. **Crear y activar entorno virtual**
+  
+
+
+
+
+
+
+
+
+
