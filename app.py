@@ -722,8 +722,10 @@ def whatsapp_reply():
   
 if __name__ == "__main__":
     scheduler = BackgroundScheduler()
-    scheduler.add_job(daily_routine_message, 'cron', hour=5, minute=0)
-    scheduler.add_job(schedule_reminders, 'cron', hour=4, minute=55)
+    # Programa los trabajos
+    scheduler.add_job(daily_routine_message, 'cron', hour=13, minute=40, timezone='America/Lima')
+    scheduler.add_job(schedule_reminders, 'cron', hour=4, minute=55, timezone='America/Lima')
     scheduler.start()
- 
-    app.run(debug=True)
+    
+    # Ejecuta la aplicación Flask, pero sin el reloader
+    app.run(debug=True, use_reloader=False)
