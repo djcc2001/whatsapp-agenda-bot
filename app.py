@@ -721,11 +721,16 @@ def whatsapp_reply():
     return str(resp)
   
 if __name__ == "__main__":
-    scheduler = BackgroundScheduler()
-    # Programa los trabajos
-    scheduler.add_job(daily_routine_message, 'cron', hour=13, minute=40, timezone='America/Lima')
-    scheduler.add_job(schedule_reminders, 'cron', hour=4, minute=55, timezone='America/Lima')
-    scheduler.start()
+    # Esta verificación asegura que el scheduler solo se inicie en el proceso principal
+    # y no en el proceso de recarga (reloader) de Flask.
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        scheduler = BackgroundScheduler()
+        # Programa los trabajos con la hora y la zona horaria
+        scheduler.add_job(daily_routine_message, 'cron', hour=13, minute=50, timezone='America/Lima')
+        scheduler.add_job(schedule_reminders, 'cron', hour=4, minute=55, timezone='America/Lima')
+        scheduler.start()
+        print("Scheduler iniciado correctamente.")
     
-    # Ejecuta la aplicación Flask, pero sin el reloader
-    app.run(debug=True, use_reloader=False)
+    # Ejecuta la aplicación Flask en modo de depuración.
+    # El reloader ahora puede estar activo.
+    app.run(debug=True, use_reloader=True)
