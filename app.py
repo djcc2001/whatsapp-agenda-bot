@@ -724,7 +724,7 @@ if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     # Programa los trabajos con la hora y la zona horaria correcta
     # Asegúrate de que la zona horaria es la misma que la que usas en tu bot
-    scheduler.add_job(daily_routine_message, 'cron', hour=14, minute=05, timezone='America/Lima')
+    scheduler.add_job(daily_routine_message, 'cron', hour=14, minute=10, timezone='America/Lima')
     scheduler.add_job(schedule_reminders, 'cron', hour=4, minute=55, timezone='America/Lima')
     scheduler.start()
     print("Scheduler iniciado correctamente.")
@@ -738,4 +738,5 @@ if __name__ == "__main__":
     except (KeyboardInterrupt, SystemExit):
         print("Scheduler detenido.")
         pass
+
 
