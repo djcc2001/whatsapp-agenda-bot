@@ -58,7 +58,7 @@ Permite administrar eventos (únicos o recurrentes), enviar recordatorios y mane
 4. **Archivo .env**
    Crear un archivo .env con el siguiente contenido (reemplaza los valores con tus    credenciales):
    ```bash
-TWILIO_ACCOUNT_SID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+     TWILIO_ACCOUNT_SID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
      TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
      TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
      YOUR_PHONE_NUMBER=whatsapp:+[tu_numero]
