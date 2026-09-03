@@ -3,6 +3,6 @@ twilio
 apscheduler
 python-dotenv
 gunicorn
-google-generativeai
+google-genai
 firebase-admin
 pytz

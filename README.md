@@ -58,14 +58,14 @@ Permite administrar eventos (únicos o recurrentes), enviar recordatorios y mane
 4. **Archivo .env**
    Crear un archivo .env con el siguiente contenido (reemplaza los valores con tus    credenciales):
    ```bash
-   TWILIO_ACCOUNT_SID=xxxxxxxxxxxxxxxx
-    TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxx
-    TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
-    YOUR_PHONE_NUMBER=whatsapp:+[tu_numero]
-    
-    GEMINI_API_KEY=xxxxxxxxxxxxxxxx
-    
-    FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"...","private_key_id":"...","private_key":"-----BEGIN PRIVATE KEY-----\n...","client_email":"...","client_id":"...","auth_uri":"...","token_uri":"...","auth_provider_x509_cert_url":"...","client_x509_cert_url":"..."}
+TWILIO_ACCOUNT_SID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+     TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+     TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
+     YOUR_PHONE_NUMBER=whatsapp:+[tu_numero]
+     
+     GEMINI_API_KEY=your_gemini_api_key_here
+     
+     FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"tu-proyecto-id","private_key_id":"tu-key-id","private_key":"-----BEGIN PRIVATE KEY-----\n...","client_email":"tu-service-account@tu-proyecto.iam.gserviceaccount.com","client_id":"tu-client-id","auth_uri":"https://oauth2.googleapis.com/token","token_uri":"https://oauth2.googleapis.com/auth","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":""}
    ```
 
 5. **Ejecutar en local**
